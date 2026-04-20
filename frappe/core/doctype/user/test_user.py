@@ -25,6 +25,7 @@ from frappe.model.delete_doc import delete_doc
 from frappe.tests.test_api import FrappeAPITestCase
 from frappe.tests.utils import FrappeTestCase, change_settings
 from frappe.utils import get_url
+from frappe.www.login import sanitize_redirect
 
 user_module = frappe.core.doctype.user.user
 test_records = frappe.get_test_records("User")
@@ -40,7 +41,7 @@ class TestUser(FrappeTestCase):
 
 	@staticmethod
 	def reset_password(user) -> str:
-		link = user.reset_password()
+		link = user._reset_password()
 		return parse_qs(urlparse(link).query)["key"][0]
 
 	def test_user_type(self):
@@ -333,7 +334,9 @@ class TestUser(FrappeTestCase):
 			sign_up(random_user, random_user_name, "/welcome"),
 			(1, "Please check your email for verification"),
 		)
-		self.assertEqual(frappe.cache.hget("redirect_after_login", random_user), "/welcome")
+		self.assertEqual(
+			frappe.cache.hget("redirect_after_login", random_user), sanitize_redirect("/welcome")
+		)
 
 		# re-register
 		self.assertTupleEqual(sign_up(random_user, random_user_name, "/welcome"), (0, "Already Registered"))
@@ -412,6 +415,12 @@ class TestUser(FrappeTestCase):
 
 		# test API endpoint
 		with patch.object(user_module.frappe, "sendmail") as sendmail:
+			from unittest.mock import MagicMock
+
+			mock_q = MagicMock()
+			mock_q.name = "test-email-queue-name"
+			mock_q.message = "Subject: Test\n\nDear User, here is your link"
+			sendmail.return_value = mock_q
 			frappe.clear_messages()
 			test_user = frappe.get_doc("User", "test2@example.com")
 			self.assertEqual(reset_password(user="test2@example.com"), None)
